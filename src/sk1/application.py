@@ -254,31 +254,32 @@ class SK1Application(wal.Application, UCApplication):
     def save(self, doc=None):
         doc = doc or self.current_doc
         if not doc.doc_file:
-            return self.save_as()
-        ext = os.path.splitext(self.current_doc.doc_file)[1]
+            return self.save_as(doc)
+        ext = os.path.splitext(doc.doc_file)[1]
         if not ext == "." + uc2const.FORMAT_EXTENSION[uc2const.SK2][0]:
-            return self.save_as()
-        if not fsutils.exists(os.path.dirname(self.current_doc.doc_file)):
-            return self.save_as()
+            return self.save_as(doc)
+        if not fsutils.exists(os.path.dirname(doc.doc_file)):
+            return self.save_as(doc)
 
         try:
-            self.make_backup(self.current_doc.doc_file)
+            self.make_backup(doc.doc_file)
             doc.save()
-            self.history.add_entry(self.current_doc.doc_file, appconst.SAVED)
+            self.history.add_entry(doc.doc_file, appconst.SAVED)
             events.emit(events.DOC_SAVED, doc)
         except Exception as e:
             msg = _('Cannot save file:')
-            msg = "%s\n'%s'" % (msg, self.current_doc.doc_file) + '\n'
+            msg = "%s\n'%s'" % (msg, doc.doc_file) + '\n'
             msg += _('Please check file write permissions')
             dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
-            LOG.error('Cannot save file <%s> %s', self.current_doc.doc_file, e)
+            LOG.error('Cannot save file <%s> %s', doc.doc_file, e)
             return False
         events.emit(events.APP_STATUS, _('Document saved'))
         return True
 
-    def save_as(self):
-        doc_file = self.current_doc.doc_file
-        doc_file = doc_file or self.current_doc.doc_name
+    def save_as(self, doc=None):
+        doc = doc or self.current_doc
+        doc_file = doc.doc_file
+        doc_file = doc_file or doc.doc_name
         if os.path.splitext(doc_file)[1] != "." + \
                 uc2const.FORMAT_EXTENSION[uc2const.SK2][0]:
             doc_file = os.path.splitext(doc_file)[0] + "." + \
@@ -288,23 +289,23 @@ class SK1Application(wal.Application, UCApplication):
                                     os.path.basename(doc_file))
         doc_file = dialogs.get_save_file_name(self.mw, doc_file, path_only=True)
         if doc_file:
-            old_file = self.current_doc.doc_file
-            old_name = self.current_doc.doc_name
-            self.current_doc.set_doc_file(doc_file)
+            old_file = doc.doc_file
+            old_name = doc.doc_name
+            doc.set_doc_file(doc_file)
             try:
                 self.make_backup(doc_file)
-                self.current_doc.save()
+                doc.save()
             except Exception as e:
-                self.current_doc.set_doc_file(old_file, old_name)
+                doc.set_doc_file(old_file, old_name)
                 first = _('Cannot save document:')
-                msg = "%s\n'%s'." % (first, self.current_doc.doc_name) + '\n'
+                msg = "%s\n'%s'." % (first, doc_file) + '\n'
                 msg += _('Please check file name and write permissions')
                 dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
                 LOG.error('Cannot save file <%s> %s', doc_file, e)
                 return False
             config.save_dir = str(os.path.dirname(doc_file))
             self.history.add_entry(doc_file, appconst.SAVED)
-            events.emit(events.DOC_SAVED, self.current_doc)
+            events.emit(events.DOC_SAVED, doc)
             events.emit(events.APP_STATUS, _('Document saved'))
             return True
         else:
