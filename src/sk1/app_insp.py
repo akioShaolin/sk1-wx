@@ -60,7 +60,7 @@ class AppInspector:
         return not self.is_doc_saved(doc)
 
     def is_any_doc_not_saved(self):
-        return any([doc.saved for doc in self.app.docs])
+        return any([not doc.saved for doc in self.app.docs])
 
     def is_mode(self, *args):
         return True if self.is_doc() and self.app.current_doc.canvas.mode in args else False
