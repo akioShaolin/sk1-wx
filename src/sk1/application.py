@@ -17,7 +17,9 @@
 
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import webbrowser
 from base64 import b64decode
 
@@ -262,8 +264,39 @@ class SK1Application(wal.Application, UCApplication):
             return self.save_as(doc)
 
         try:
-            self.make_backup(doc.doc_file)
+            backup = self.make_backup(doc.doc_file)
+        except Exception as e:
+            msg = _('Cannot save file:')
+            msg = "%s\n'%s'" % (msg, doc.doc_file) + '\n'
+            msg += _('Please check file write permissions')
+            dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
+            LOG.error('Cannot save file <%s> %s', doc.doc_file, e)
+            return False
+        try:
             doc.save()
+        except Exception as e:
+            recovery_error = None
+            if backup:
+                try:
+                    self.restore_backup(backup)
+                except Exception as error:
+                    recovery_error = error
+            msg = _('Cannot save file:')
+            msg = "%s\n'%s'" % (msg, doc.doc_file) + '\n'
+            msg += _('Please check file write permissions')
+            if recovery_error:
+                msg += '\n' + _('The backup remains available at:')
+                msg += "\n'%s'" % backup['backup_file']
+            dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
+            if recovery_error:
+                LOG.error('Cannot save file <%s> %s; '
+                          'cannot restore backup <%s> %s',
+                          doc.doc_file, e, backup['backup_file'],
+                          recovery_error)
+            else:
+                LOG.error('Cannot save file <%s> %s', doc.doc_file, e)
+            return False
+        try:
             self.history.add_entry(doc.doc_file, appconst.SAVED)
             events.emit(events.DOC_SAVED, doc)
         except Exception as e:
@@ -293,8 +326,7 @@ class SK1Application(wal.Application, UCApplication):
             old_name = doc.doc_name
             doc.set_doc_file(doc_file)
             try:
-                self.make_backup(doc_file)
-                doc.save()
+                backup = self.make_backup(doc_file)
             except Exception as e:
                 doc.set_doc_file(old_file, old_name)
                 first = _('Cannot save document:')
@@ -302,6 +334,31 @@ class SK1Application(wal.Application, UCApplication):
                 msg += _('Please check file name and write permissions')
                 dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
                 LOG.error('Cannot save file <%s> %s', doc_file, e)
+                return False
+            try:
+                doc.save()
+            except Exception as e:
+                recovery_error = None
+                if backup:
+                    try:
+                        self.restore_backup(backup)
+                    except Exception as error:
+                        recovery_error = error
+                doc.set_doc_file(old_file, old_name)
+                first = _('Cannot save document:')
+                msg = "%s\n'%s'." % (first, doc_file) + '\n'
+                msg += _('Please check file name and write permissions')
+                if recovery_error:
+                    msg += '\n' + _('The backup remains available at:')
+                    msg += "\n'%s'" % backup['backup_file']
+                dialogs.error_dialog(self.mw, self.appdata.app_name, msg)
+                if recovery_error:
+                    LOG.error('Cannot save file <%s> %s; '
+                              'cannot restore backup <%s> %s',
+                              doc_file, e, backup['backup_file'],
+                              recovery_error)
+                else:
+                    LOG.error('Cannot save file <%s> %s', doc_file, e)
                 return False
             config.save_dir = str(os.path.dirname(doc_file))
             self.history.add_entry(doc_file, appconst.SAVED)
@@ -600,9 +657,34 @@ class SK1Application(wal.Application, UCApplication):
         if export and not config.make_export_backup:
             return
         if fsutils.exists(doc_file):
-            if fsutils.exists(doc_file + '~'):
-                fsutils.remove(doc_file + '~')
-            fsutils.rename(doc_file, doc_file + '~')
+            backup_file = doc_file + '~'
+            if fsutils.exists(backup_file):
+                fsutils.remove(backup_file)
+            fsutils.rename(doc_file, backup_file)
+            return {'doc_file': doc_file, 'backup_file': backup_file}
+
+    @staticmethod
+    def restore_backup(backup):
+        doc_file = fsutils.get_sys_path(backup['doc_file'])
+        backup_file = fsutils.get_sys_path(backup['backup_file'])
+        directory = os.path.dirname(doc_file) or os.curdir
+        prefix = '.%s.restore-' % os.path.basename(doc_file)
+        file_descriptor, temp_file = tempfile.mkstemp(prefix=prefix,
+                                                      dir=directory)
+        os.close(file_descriptor)
+        try:
+            shutil.copyfile(backup_file, temp_file)
+            if os.path.exists(doc_file):
+                os.remove(doc_file)
+            os.rename(temp_file, doc_file)
+            temp_file = None
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    LOG.error('Cannot remove temporary recovery file <%s>',
+                              temp_file, exc_info=True)
 
     @staticmethod
     def uc2_event_logging(*args):
