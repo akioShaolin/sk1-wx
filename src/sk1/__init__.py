@@ -77,6 +77,8 @@ def check_server(cfgdir):
         socket = os.path.join(cfg_dir, 'socket')
         with fsutils.uopen(socket, 'wb') as fp:
             for item in sys.argv[1:]:
+                if isinstance(item, unicode):
+                    item = item.encode('utf-8')
                 fp.write('%s\n' % item)
         time.sleep(2)
         if fsutils.exists(socket):
